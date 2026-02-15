@@ -78,7 +78,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		h, v := appStyle.GetFrameSize()
 		listW := msg.Width - h
-		listH := msg.Height - v - 6 // reserve space for header + selections
+		overhead := 6 + m.selectionLineCount()
+		listH := msg.Height - v - overhead
 		if listH < 5 {
 			listH = 5
 		}
@@ -140,15 +141,15 @@ func (m Model) View() string {
 	// Previous selections summary
 	b.WriteString(m.selectionSummary())
 
-	// Confirm step has a special view
-	if m.currentStep == stepConfirm {
-		b.WriteString(m.confirmView())
-		return appStyle.Render(b.String())
-	}
-
 	// Preset naming overlay
 	if m.namingPreset {
 		b.WriteString(m.presetNamingView())
+		return appStyle.Render(b.String())
+	}
+
+	// Confirm step has a special view
+	if m.currentStep == stepConfirm {
+		b.WriteString(m.confirmView())
 		return appStyle.Render(b.String())
 	}
 
@@ -211,8 +212,6 @@ func (m Model) presetNamingView() string {
 }
 
 func (m Model) advance() (tea.Model, tea.Cmd) {
-	w, h := m.listSize()
-
 	switch m.currentStep {
 	case stepPreset:
 		selected := m.list.SelectedItem()
@@ -222,6 +221,7 @@ func (m Model) advance() (tea.Model, tea.Cmd) {
 		item := selected.(presetItem)
 		if item.isNew {
 			m.currentStep = stepProject
+			w, h := m.listSize()
 			m.list = newProjectList(m.projects, w, h)
 		} else {
 			// Apply preset and launch
@@ -238,6 +238,7 @@ func (m Model) advance() (tea.Model, tea.Cmd) {
 		}
 		m.selectedProject = selected.(projectItem).project
 		m.currentStep = stepLayout
+		w, h := m.listSize()
 		m.list = newLayoutList(w, h, m.cfg.DefaultLayout)
 
 	case stepLayout:
@@ -247,6 +248,7 @@ func (m Model) advance() (tea.Model, tea.Cmd) {
 		}
 		m.selectedLayout = selected.(layoutItem).layout
 		m.currentStep = stepTool
+		w, h := m.listSize()
 		m.list = newToolList(m.tools, w, h, m.cfg.DefaultTool)
 
 	case stepTool:
@@ -256,6 +258,7 @@ func (m Model) advance() (tea.Model, tea.Cmd) {
 		}
 		m.selectedTool = selected.(toolItem).tool
 		m.currentStep = stepConfirm
+		w, h := m.listSize()
 		m.list = newConfirmList(w, h)
 
 	case stepConfirm:
@@ -270,16 +273,14 @@ func (m Model) advance() (tea.Model, tea.Cmd) {
 		}
 		// "Save as preset & Launch"
 		m.namingPreset = true
-		m.presetInput.Focus()
-		return m, m.presetInput.Cursor.BlinkCmd()
+		cmd := m.presetInput.Focus()
+		return m, cmd
 	}
 
 	return m, nil
 }
 
 func (m Model) goBack() (tea.Model, tea.Cmd) {
-	w, h := m.listSize()
-
 	switch m.currentStep {
 	case stepPreset:
 		m.cancelled = true
@@ -288,6 +289,7 @@ func (m Model) goBack() (tea.Model, tea.Cmd) {
 	case stepProject:
 		if len(m.cfg.Presets) > 0 {
 			m.currentStep = stepPreset
+			w, h := m.listSize()
 			m.list = newPresetList(m.cfg.Presets, w, h)
 		} else {
 			m.cancelled = true
@@ -296,14 +298,17 @@ func (m Model) goBack() (tea.Model, tea.Cmd) {
 
 	case stepLayout:
 		m.currentStep = stepProject
+		w, h := m.listSize()
 		m.list = newProjectList(m.projects, w, h)
 
 	case stepTool:
 		m.currentStep = stepLayout
+		w, h := m.listSize()
 		m.list = newLayoutList(w, h, m.cfg.DefaultLayout)
 
 	case stepConfirm:
 		m.currentStep = stepTool
+		w, h := m.listSize()
 		m.list = newToolList(m.tools, w, h, m.cfg.DefaultTool)
 	}
 
@@ -364,10 +369,28 @@ func (m *Model) applyPreset(p config.Preset) {
 	}
 }
 
+func (m Model) selectionLineCount() int {
+	count := 0
+	if m.currentStep > stepProject {
+		count++ // "Project: xxx"
+	}
+	if m.currentStep > stepLayout {
+		count++ // "Layout: xxx"
+	}
+	if m.currentStep > stepTool {
+		count++ // "Tool: xxx"
+	}
+	if count > 0 {
+		count++ // blank line after selections
+	}
+	return count
+}
+
 func (m Model) listSize() (int, int) {
 	h, v := appStyle.GetFrameSize()
 	w := m.width - h
-	lh := m.height - v - 6
+	overhead := 6 + m.selectionLineCount()
+	lh := m.height - v - overhead
 	if w < 30 {
 		w = 60
 	}
