@@ -8,6 +8,16 @@ Built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) for a polish
 ![macOS](https://img.shields.io/badge/macOS-only-000000?logo=apple&logoColor=white)
 ![License](https://img.shields.io/badge/license-MIT-blue)
 
+<img width="457" height="229" alt="image" src="https://github.com/user-attachments/assets/59269976-3348-447b-ba4b-2b5f255da3fe" />
+
+<img width="459" height="480" alt="image" src="https://github.com/user-attachments/assets/e39e9888-62c4-418b-969d-34eccfc16325" />
+
+<img width="627" height="525" alt="image" src="https://github.com/user-attachments/assets/184d0e9d-242a-4d38-bd6a-bf6d98cd4c92" />
+
+<img width="2553" height="1349" alt="image" src="https://github.com/user-attachments/assets/2854088d-a2f8-4bc1-b5fe-170ecd23d365" />
+
+
+
 ## Features
 <img width="433" height="232" alt="image" src="https://github.com/user-attachments/assets/ae385713-2c98-45f6-a465-10a113db10c9" />
 
