@@ -7,11 +7,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+type CustomLayout struct {
+	Name    string `yaml:"name"`
+	RowCols []int  `yaml:"row_cols"`
+}
+
 type Config struct {
 	DefaultLayout  string            `yaml:"default_layout,omitempty"`
 	DefaultTool    string            `yaml:"default_tool,omitempty"`
 	CustomCommands map[string]string `yaml:"custom_commands,omitempty"`
 	Presets        []Preset          `yaml:"presets,omitempty"`
+	CustomLayouts  []CustomLayout    `yaml:"custom_layouts,omitempty"`
 }
 
 func configPath() string {

@@ -59,14 +59,14 @@ func main() {
 	}
 
 	// Launch terminals
-	fmt.Printf("Launching %dx%d terminals in %s...\n",
-		final.SelectedLayout().Cols, final.SelectedLayout().Rows,
+	layout := final.SelectedLayout()
+	fmt.Printf("Launching %d terminals (%s) in %s...\n",
+		layout.TotalTerminals(), layout.Desc,
 		final.SelectedProject().Name)
 
 	err = launcher.Launch(launcher.Options{
 		ProjectDir: final.SelectedProject().Path,
-		Cols:       final.SelectedLayout().Cols,
-		Rows:       final.SelectedLayout().Rows,
+		RowCols:    layout.RowCols,
 		Command:    final.SelectedTool().Command,
 	})
 	if err != nil {

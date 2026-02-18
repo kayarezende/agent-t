@@ -11,8 +11,7 @@ import (
 
 type Options struct {
 	ProjectDir string
-	Cols       int
-	Rows       int
+	RowCols    []int // columns per row, e.g. [3,4] = 3 top, 4 bottom
 	Command    string
 }
 
@@ -22,7 +21,8 @@ type screenBounds struct {
 
 type scriptData struct {
 	X1, Y1, X2, Y2 int
-	Cols, Rows      int
+	RowCols         string // comma-separated, e.g. "3,4"
+	NumRows         int
 	TermCmd         string
 }
 
@@ -38,7 +38,7 @@ func Launch(opts Options) error {
 		termCmd += " && " + opts.Command
 	}
 
-	script, err := buildTilingScript(bounds, opts.Cols, opts.Rows, termCmd)
+	script, err := buildTilingScript(bounds, opts.RowCols, termCmd)
 	if err != nil {
 		return fmt.Errorf("building AppleScript: %w", err)
 	}
@@ -70,10 +70,16 @@ func detectScreen() (screenBounds, error) {
 	return screenBounds{X1: vals[0], Y1: vals[1], X2: vals[2], Y2: vals[3]}, nil
 }
 
-func buildTilingScript(bounds screenBounds, cols, rows int, termCmd string) (string, error) {
+func buildTilingScript(bounds screenBounds, rowCols []int, termCmd string) (string, error) {
 	tmpl, err := template.New("tiling").Parse(tilingScriptTemplate)
 	if err != nil {
 		return "", err
+	}
+
+	// Build comma-separated rowCols string for AppleScript
+	parts := make([]string, len(rowCols))
+	for i, c := range rowCols {
+		parts[i] = strconv.Itoa(c)
 	}
 
 	var buf bytes.Buffer
@@ -82,8 +88,8 @@ func buildTilingScript(bounds screenBounds, cols, rows int, termCmd string) (str
 		Y1:      bounds.Y1,
 		X2:      bounds.X2,
 		Y2:      bounds.Y2,
-		Cols:    cols,
-		Rows:    rows,
+		RowCols: strings.Join(parts, ", "),
+		NumRows: len(rowCols),
 		TermCmd: termCmd,
 	})
 	if err != nil {

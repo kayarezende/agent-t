@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"agent-t/internal/config"
@@ -25,6 +26,7 @@ type Model struct {
 	cfg      *config.Config
 	cwd      string
 	tools    []Tool
+	layouts  []Layout
 
 	list list.Model
 
@@ -36,16 +38,22 @@ type Model struct {
 	// Preset naming
 	namingPreset bool
 	presetInput  textinput.Model
+
+	// Custom layout input
+	enteringCustomLayout bool
+	customLayoutInput    textinput.Model
 }
 
 func NewModel(projects []scanner.Project, cfg *config.Config, cwd string) Model {
 	tools := AllTools(cfg)
+	layouts := AllLayouts(cfg)
 
 	m := Model{
 		projects: projects,
 		cfg:      cfg,
 		cwd:      cwd,
 		tools:    tools,
+		layouts:  layouts,
 	}
 
 	// Start on presets if any exist, otherwise jump to project selection
@@ -63,6 +71,13 @@ func NewModel(projects []scanner.Project, cfg *config.Config, cwd string) Model 
 	ti.CharLimit = 30
 	ti.Width = 30
 	m.presetInput = ti
+
+	// Prepare text input for custom layout
+	cli := textinput.New()
+	cli.Placeholder = "3,4"
+	cli.CharLimit = 20
+	cli.Width = 20
+	m.customLayoutInput = cli
 
 	return m
 }
@@ -90,6 +105,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Handle preset naming mode separately
 		if m.namingPreset {
 			return m.updatePresetNaming(msg)
+		}
+		// Handle custom layout input mode
+		if m.enteringCustomLayout {
+			return m.updateCustomLayoutInput(msg)
 		}
 
 		// Don't intercept keys when the list is filtering
@@ -147,6 +166,12 @@ func (m Model) View() string {
 		return appStyle.Render(b.String())
 	}
 
+	// Custom layout input overlay
+	if m.enteringCustomLayout {
+		b.WriteString(m.customLayoutView())
+		return appStyle.Render(b.String())
+	}
+
 	// Confirm step has a special view
 	if m.currentStep == stepConfirm {
 		b.WriteString(m.confirmView())
@@ -168,7 +193,7 @@ func (m Model) selectionSummary() string {
 	}
 	if m.currentStep > stepLayout {
 		b.WriteString(selectionLabelStyle.Render("Layout:"))
-		b.WriteString(selectionValueStyle.Render(fmt.Sprintf("%s (%dx%d)", m.selectedLayout.Name, m.selectedLayout.Cols, m.selectedLayout.Rows)))
+		b.WriteString(selectionValueStyle.Render(fmt.Sprintf("%s (%s)", m.selectedLayout.Name, m.selectedLayout.Desc)))
 		b.WriteString("\n")
 	}
 	if m.currentStep > stepTool {
@@ -188,7 +213,7 @@ func (m Model) confirmView() string {
 	// Summary box
 	summary := lipgloss.JoinVertical(lipgloss.Left,
 		confirmLabelStyle.Render("Project:")+confirmValueStyle.Render(m.selectedProject.Name),
-		confirmLabelStyle.Render("Layout:")+confirmValueStyle.Render(fmt.Sprintf("%s (%dx%d)", m.selectedLayout.Name, m.selectedLayout.Cols, m.selectedLayout.Rows)),
+		confirmLabelStyle.Render("Layout:")+confirmValueStyle.Render(fmt.Sprintf("%s (%s)", m.selectedLayout.Name, m.selectedLayout.Desc)),
 		confirmLabelStyle.Render("Tool:")+confirmValueStyle.Render(m.selectedTool.Name),
 		confirmLabelStyle.Render("Directory:")+confirmValueStyle.Render(m.selectedProject.Path),
 	)
@@ -239,14 +264,20 @@ func (m Model) advance() (tea.Model, tea.Cmd) {
 		m.selectedProject = selected.(projectItem).project
 		m.currentStep = stepLayout
 		w, h := m.listSize()
-		m.list = newLayoutList(w, h, m.cfg.DefaultLayout)
+		m.list = newLayoutList(m.layouts, w, h, m.cfg.DefaultLayout)
 
 	case stepLayout:
 		selected := m.list.SelectedItem()
 		if selected == nil {
 			return m, nil
 		}
-		m.selectedLayout = selected.(layoutItem).layout
+		lay := selected.(layoutItem).layout
+		if lay.Name == "Custom..." {
+			m.enteringCustomLayout = true
+			cmd := m.customLayoutInput.Focus()
+			return m, cmd
+		}
+		m.selectedLayout = lay
 		m.currentStep = stepTool
 		w, h := m.listSize()
 		m.list = newToolList(m.tools, w, h, m.cfg.DefaultTool)
@@ -304,7 +335,7 @@ func (m Model) goBack() (tea.Model, tea.Cmd) {
 	case stepTool:
 		m.currentStep = stepLayout
 		w, h := m.listSize()
-		m.list = newLayoutList(w, h, m.cfg.DefaultLayout)
+		m.list = newLayoutList(m.layouts, w, h, m.cfg.DefaultLayout)
 
 	case stepConfirm:
 		m.currentStep = stepTool
@@ -353,9 +384,11 @@ func (m *Model) applyPreset(p config.Preset) {
 			break
 		}
 	}
+	// Normalize old-style layout IDs (e.g. "2x1" -> "2", "3x2" -> "3,3")
+	layoutID := convertLegacyLayoutID(p.Layout)
 	// Find the layout
-	for _, lay := range Layouts {
-		if lay.ID() == p.Layout {
+	for _, lay := range m.layouts {
+		if lay.ID() == layoutID {
 			m.selectedLayout = lay
 			break
 		}
@@ -367,6 +400,107 @@ func (m *Model) applyPreset(p config.Preset) {
 			break
 		}
 	}
+}
+
+// convertLegacyLayoutID converts old "CxR" format to new comma-separated format.
+// e.g. "2x1" -> "2", "2x2" -> "2,2", "3x2" -> "3,3", "4x2" -> "4,4"
+// New format IDs like "3,4" pass through unchanged.
+func convertLegacyLayoutID(id string) string {
+	if !strings.Contains(id, "x") {
+		return id
+	}
+	parts := strings.SplitN(id, "x", 2)
+	if len(parts) != 2 {
+		return id
+	}
+	cols, err1 := strconv.Atoi(parts[0])
+	rows, err2 := strconv.Atoi(parts[1])
+	if err1 != nil || err2 != nil {
+		return id
+	}
+	rowCols := make([]string, rows)
+	for i := range rowCols {
+		rowCols[i] = strconv.Itoa(cols)
+	}
+	return strings.Join(rowCols, ",")
+}
+
+func (m Model) updateCustomLayoutInput(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch msg.String() {
+	case "enter":
+		input := strings.TrimSpace(m.customLayoutInput.Value())
+		if input == "" {
+			return m, nil
+		}
+		rowCols, err := parseRowCols(input)
+		if err != nil {
+			return m, nil // ignore invalid input
+		}
+		layout := Layout{RowCols: rowCols}
+		layout.Desc = layout.GenerateDesc()
+		layout.Name = fmt.Sprintf("Custom %s", layout.ID())
+		m.selectedLayout = layout
+
+		// Save to config
+		m.cfg.CustomLayouts = append(m.cfg.CustomLayouts, config.CustomLayout{
+			Name:    layout.Name,
+			RowCols: rowCols,
+		})
+		m.configDirty = true
+		// Refresh layouts list
+		m.layouts = AllLayouts(m.cfg)
+
+		m.enteringCustomLayout = false
+		m.customLayoutInput.Reset()
+		m.currentStep = stepTool
+		w, h := m.listSize()
+		m.list = newToolList(m.tools, w, h, m.cfg.DefaultTool)
+		return m, nil
+
+	case "esc":
+		m.enteringCustomLayout = false
+		m.customLayoutInput.Reset()
+		return m, nil
+	}
+
+	var cmd tea.Cmd
+	m.customLayoutInput, cmd = m.customLayoutInput.Update(msg)
+	return m, cmd
+}
+
+func (m Model) customLayoutView() string {
+	var b strings.Builder
+	b.WriteString("\n")
+	b.WriteString(promptStyle.Render("Columns per row: "))
+	b.WriteString(m.customLayoutInput.View())
+	b.WriteString("\n")
+	b.WriteString(dimStyle.Render("e.g. 3,4 = 3 top, 4 bottom"))
+	b.WriteString("\n\n")
+	b.WriteString(dimStyle.Render("Enter to confirm • Esc to cancel"))
+	return b.String()
+}
+
+// parseRowCols parses a comma-separated string like "3,4" into []int{3, 4}.
+func parseRowCols(s string) ([]int, error) {
+	parts := strings.Split(s, ",")
+	result := make([]int, 0, len(parts))
+	total := 0
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p == "" {
+			continue
+		}
+		n, err := strconv.Atoi(p)
+		if err != nil || n < 1 {
+			return nil, fmt.Errorf("invalid: %s", p)
+		}
+		result = append(result, n)
+		total += n
+	}
+	if len(result) == 0 || total > 20 {
+		return nil, fmt.Errorf("invalid layout")
+	}
+	return result, nil
 }
 
 func (m Model) selectionLineCount() int {

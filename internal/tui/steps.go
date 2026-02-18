@@ -1,7 +1,8 @@
 package tui
 
 import (
-	"fmt"
+	"strconv"
+	"strings"
 
 	"agent-t/internal/config"
 	"agent-t/internal/scanner"
@@ -56,19 +57,62 @@ func stepNumber(s step, hasPresets bool) (int, int) {
 
 // Layout represents a terminal grid layout.
 type Layout struct {
-	Name string
-	Cols int
-	Rows int
-	Desc string
+	Name    string
+	RowCols []int  // columns per row, e.g. [3,4] = 3 top, 4 bottom
+	Desc    string
+	Custom  bool
 }
 
-func (l Layout) ID() string { return fmt.Sprintf("%dx%d", l.Cols, l.Rows) }
+func (l Layout) TotalTerminals() int {
+	n := 0
+	for _, c := range l.RowCols {
+		n += c
+	}
+	return n
+}
+
+func (l Layout) NumRows() int { return len(l.RowCols) }
+
+func (l Layout) ID() string {
+	parts := make([]string, len(l.RowCols))
+	for i, c := range l.RowCols {
+		parts[i] = strconv.Itoa(c)
+	}
+	return strings.Join(parts, ",")
+}
+
+func (l Layout) GenerateDesc() string {
+	rows := make([]string, len(l.RowCols))
+	for i, cols := range l.RowCols {
+		cells := make([]string, cols)
+		for j := range cells {
+			cells[j] = "[ ]"
+		}
+		rows[i] = strings.Join(cells, "")
+	}
+	return strings.Join(rows, " / ")
+}
 
 var Layouts = []Layout{
-	{Name: "2 terminals", Cols: 2, Rows: 1, Desc: "[ ][ ]"},
-	{Name: "4 terminals", Cols: 2, Rows: 2, Desc: "[ ][ ] / [ ][ ]"},
-	{Name: "6 terminals", Cols: 3, Rows: 2, Desc: "[ ][ ][ ] / [ ][ ][ ]"},
-	{Name: "8 terminals", Cols: 4, Rows: 2, Desc: "[ ][ ][ ][ ] / [ ][ ][ ][ ]"},
+	{Name: "2 terminals", RowCols: []int{2}, Desc: "[ ][ ]"},
+	{Name: "3 terminals", RowCols: []int{3}, Desc: "[ ][ ][ ]"},
+	{Name: "4 terminals (grid)", RowCols: []int{2, 2}, Desc: "[ ][ ] / [ ][ ]"},
+	{Name: "4 terminals (vertical)", RowCols: []int{1, 1, 1, 1}, Desc: "[ ] / [ ] / [ ] / [ ]"},
+	{Name: "6 terminals", RowCols: []int{3, 3}, Desc: "[ ][ ][ ] / [ ][ ][ ]"},
+	{Name: "8 terminals", RowCols: []int{4, 4}, Desc: "[ ][ ][ ][ ] / [ ][ ][ ][ ]"},
+}
+
+// AllLayouts returns built-in layouts + custom layouts from config + a "Custom..." entry.
+func AllLayouts(cfg *config.Config) []Layout {
+	layouts := make([]Layout, len(Layouts))
+	copy(layouts, Layouts)
+	for _, cl := range cfg.CustomLayouts {
+		l := Layout{Name: cl.Name, RowCols: cl.RowCols, Custom: true}
+		l.Desc = l.GenerateDesc()
+		layouts = append(layouts, l)
+	}
+	layouts = append(layouts, Layout{Name: "Custom...", Desc: "Define your own layout"})
+	return layouts
 }
 
 // Tool represents an AI tool or command to run in each terminal.
@@ -81,7 +125,7 @@ type Tool struct {
 var BuiltinTools = []Tool{
 	{Name: "None - just terminals", Command: ""},
 	{Name: "Claude Code", Command: "claude"},
-	{Name: "Claude Code (Chrome)", Command: "claude --chat-mode browser"},
+	{Name: "Claude Code (Chrome)", Command: "claude --chrome"},
 	{Name: "Codex", Command: "codex"},
 	{Name: "OpenCode", Command: "opencode"},
 }
@@ -191,10 +235,10 @@ func newProjectList(projects []scanner.Project, width, height int) list.Model {
 	return l
 }
 
-func newLayoutList(width, height int, defaultLayout string) list.Model {
-	items := make([]list.Item, len(Layouts))
+func newLayoutList(layouts []Layout, width, height int, defaultLayout string) list.Model {
+	items := make([]list.Item, len(layouts))
 	defaultIdx := 0
-	for i, lay := range Layouts {
+	for i, lay := range layouts {
 		items[i] = layoutItem{layout: lay}
 		if lay.ID() == defaultLayout {
 			defaultIdx = i
