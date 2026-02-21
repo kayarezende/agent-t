@@ -35,6 +35,11 @@ type Model struct {
 	selectedLayout  Layout
 	selectedTool    Tool
 
+	// Split workspace mode
+	splitMode             bool
+	selectedBottomProject scanner.Project
+	selectedToolBottom    Tool
+
 	// Preset naming
 	namingPreset bool
 	presetInput  textinput.Model
@@ -56,10 +61,13 @@ func NewModel(projects []scanner.Project, cfg *config.Config, cwd string) Model 
 		layouts:  layouts,
 	}
 
-	// Start on presets if any exist, otherwise jump to project selection
+	// Start on presets if any exist, otherwise mode selection (if >= 2 projects) or project
 	if len(cfg.Presets) > 0 {
 		m.currentStep = stepPreset
 		m.list = newPresetList(cfg.Presets, 60, 20)
+	} else if len(projects) >= 2 {
+		m.currentStep = stepMode
+		m.list = newModeList(60, 20)
 	} else {
 		m.currentStep = stepProject
 		m.list = newProjectList(projects, 60, 20)
@@ -149,11 +157,11 @@ func (m Model) View() string {
 
 	// Step indicator
 	if m.currentStep != stepPreset {
-		num, total := stepNumber(m.currentStep, len(m.cfg.Presets) > 0)
-		b.WriteString(stepStyle.Render(fmt.Sprintf("Step %d/%d: %s", num, total, stepTitle(m.currentStep))))
+		num, total := stepNumber(m.currentStep, len(m.cfg.Presets) > 0, m.splitMode)
+		b.WriteString(stepStyle.Render(fmt.Sprintf("Step %d/%d: %s", num, total, stepTitle(m.currentStep, m.splitMode))))
 		b.WriteString("\n")
 	} else {
-		b.WriteString(stepStyle.Render(stepTitle(m.currentStep)))
+		b.WriteString(stepStyle.Render(stepTitle(m.currentStep, m.splitMode)))
 		b.WriteString("\n")
 	}
 
@@ -186,21 +194,51 @@ func (m Model) View() string {
 
 func (m Model) selectionSummary() string {
 	var b strings.Builder
-	if m.currentStep > stepProject {
-		b.WriteString(selectionLabelStyle.Render("Project:"))
-		b.WriteString(selectionValueStyle.Render(m.selectedProject.Name))
-		b.WriteString("\n")
+
+	if m.splitMode {
+		if m.currentStep > stepProject {
+			b.WriteString(selectionLabelStyle.Render("Top:"))
+			b.WriteString(selectionValueStyle.Render(m.selectedProject.Name))
+			b.WriteString("\n")
+		}
+		if m.currentStep > stepProjectBottom {
+			b.WriteString(selectionLabelStyle.Render("Bottom:"))
+			b.WriteString(selectionValueStyle.Render(m.selectedBottomProject.Name))
+			b.WriteString("\n")
+		}
+		if m.currentStep > stepLayout {
+			b.WriteString(selectionLabelStyle.Render("Layout:"))
+			b.WriteString(selectionValueStyle.Render(fmt.Sprintf("%s (%s)", m.selectedLayout.Name, m.selectedLayout.Desc)))
+			b.WriteString("\n")
+		}
+		if m.currentStep > stepTool {
+			b.WriteString(selectionLabelStyle.Render("Top Tool:"))
+			b.WriteString(selectionValueStyle.Render(m.selectedTool.Name))
+			b.WriteString("\n")
+		}
+		if m.currentStep > stepToolBottom {
+			b.WriteString(selectionLabelStyle.Render("Btm Tool:"))
+			b.WriteString(selectionValueStyle.Render(m.selectedToolBottom.Name))
+			b.WriteString("\n")
+		}
+	} else {
+		if m.currentStep > stepProject {
+			b.WriteString(selectionLabelStyle.Render("Project:"))
+			b.WriteString(selectionValueStyle.Render(m.selectedProject.Name))
+			b.WriteString("\n")
+		}
+		if m.currentStep > stepLayout {
+			b.WriteString(selectionLabelStyle.Render("Layout:"))
+			b.WriteString(selectionValueStyle.Render(fmt.Sprintf("%s (%s)", m.selectedLayout.Name, m.selectedLayout.Desc)))
+			b.WriteString("\n")
+		}
+		if m.currentStep > stepTool {
+			b.WriteString(selectionLabelStyle.Render("Tool:"))
+			b.WriteString(selectionValueStyle.Render(m.selectedTool.Name))
+			b.WriteString("\n")
+		}
 	}
-	if m.currentStep > stepLayout {
-		b.WriteString(selectionLabelStyle.Render("Layout:"))
-		b.WriteString(selectionValueStyle.Render(fmt.Sprintf("%s (%s)", m.selectedLayout.Name, m.selectedLayout.Desc)))
-		b.WriteString("\n")
-	}
-	if m.currentStep > stepTool {
-		b.WriteString(selectionLabelStyle.Render("Tool:"))
-		b.WriteString(selectionValueStyle.Render(m.selectedTool.Name))
-		b.WriteString("\n")
-	}
+
 	if b.Len() > 0 {
 		b.WriteString("\n")
 	}
@@ -211,12 +249,25 @@ func (m Model) confirmView() string {
 	var b strings.Builder
 
 	// Summary box
-	summary := lipgloss.JoinVertical(lipgloss.Left,
-		confirmLabelStyle.Render("Project:")+confirmValueStyle.Render(m.selectedProject.Name),
-		confirmLabelStyle.Render("Layout:")+confirmValueStyle.Render(fmt.Sprintf("%s (%s)", m.selectedLayout.Name, m.selectedLayout.Desc)),
-		confirmLabelStyle.Render("Tool:")+confirmValueStyle.Render(m.selectedTool.Name),
-		confirmLabelStyle.Render("Directory:")+confirmValueStyle.Render(m.selectedProject.Path),
-	)
+	var summary string
+	if m.splitMode {
+		summary = lipgloss.JoinVertical(lipgloss.Left,
+			confirmLabelStyle.Render("Top Project:")+confirmValueStyle.Render(m.selectedProject.Name),
+			confirmLabelStyle.Render("Top Dir:")+confirmValueStyle.Render(m.selectedProject.Path),
+			confirmLabelStyle.Render("Top Tool:")+confirmValueStyle.Render(m.selectedTool.Name),
+			confirmLabelStyle.Render("Btm Project:")+confirmValueStyle.Render(m.selectedBottomProject.Name),
+			confirmLabelStyle.Render("Btm Dir:")+confirmValueStyle.Render(m.selectedBottomProject.Path),
+			confirmLabelStyle.Render("Btm Tool:")+confirmValueStyle.Render(m.selectedToolBottom.Name),
+			confirmLabelStyle.Render("Layout:")+confirmValueStyle.Render(fmt.Sprintf("%s (%s)", m.selectedLayout.Name, m.selectedLayout.Desc)),
+		)
+	} else {
+		summary = lipgloss.JoinVertical(lipgloss.Left,
+			confirmLabelStyle.Render("Project:")+confirmValueStyle.Render(m.selectedProject.Name),
+			confirmLabelStyle.Render("Layout:")+confirmValueStyle.Render(fmt.Sprintf("%s (%s)", m.selectedLayout.Name, m.selectedLayout.Desc)),
+			confirmLabelStyle.Render("Tool:")+confirmValueStyle.Render(m.selectedTool.Name),
+			confirmLabelStyle.Render("Directory:")+confirmValueStyle.Render(m.selectedProject.Path),
+		)
+	}
 	b.WriteString(confirmBoxStyle.Render(summary))
 	b.WriteString("\n\n")
 
@@ -245,9 +296,16 @@ func (m Model) advance() (tea.Model, tea.Cmd) {
 		}
 		item := selected.(presetItem)
 		if item.isNew {
-			m.currentStep = stepProject
-			w, h := m.listSize()
-			m.list = newProjectList(m.projects, w, h)
+			// Go to mode selection if >= 2 projects, else straight to project
+			if len(m.projects) >= 2 {
+				m.currentStep = stepMode
+				w, h := m.listSize()
+				m.list = newModeList(w, h)
+			} else {
+				m.currentStep = stepProject
+				w, h := m.listSize()
+				m.list = newProjectList(m.projects, w, h)
+			}
 		} else {
 			// Apply preset and launch
 			m.selectedPreset = &item.preset
@@ -256,15 +314,41 @@ func (m Model) advance() (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
+	case stepMode:
+		selected := m.list.SelectedItem()
+		if selected == nil {
+			return m, nil
+		}
+		m.splitMode = selected.(modeItem).split
+		m.currentStep = stepProject
+		w, h := m.listSize()
+		m.list = newProjectList(m.projects, w, h)
+
 	case stepProject:
 		selected := m.list.SelectedItem()
 		if selected == nil {
 			return m, nil
 		}
 		m.selectedProject = selected.(projectItem).project
+		if m.splitMode {
+			m.currentStep = stepProjectBottom
+			w, h := m.listSize()
+			m.list = newProjectList(m.projects, w, h)
+		} else {
+			m.currentStep = stepLayout
+			w, h := m.listSize()
+			m.list = newLayoutList(m.layouts, w, h, m.cfg.DefaultLayout)
+		}
+
+	case stepProjectBottom:
+		selected := m.list.SelectedItem()
+		if selected == nil {
+			return m, nil
+		}
+		m.selectedBottomProject = selected.(projectItem).project
 		m.currentStep = stepLayout
 		w, h := m.listSize()
-		m.list = newLayoutList(m.layouts, w, h, m.cfg.DefaultLayout)
+		m.list = newSplitLayoutList(w, h, m.cfg.DefaultLayout)
 
 	case stepLayout:
 		selected := m.list.SelectedItem()
@@ -288,6 +372,22 @@ func (m Model) advance() (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.selectedTool = selected.(toolItem).tool
+		if m.splitMode {
+			m.currentStep = stepToolBottom
+			w, h := m.listSize()
+			m.list = newToolList(m.tools, w, h, m.cfg.DefaultTool)
+		} else {
+			m.currentStep = stepConfirm
+			w, h := m.listSize()
+			m.list = newConfirmList(w, h)
+		}
+
+	case stepToolBottom:
+		selected := m.list.SelectedItem()
+		if selected == nil {
+			return m, nil
+		}
+		m.selectedToolBottom = selected.(toolItem).tool
 		m.currentStep = stepConfirm
 		w, h := m.listSize()
 		m.list = newConfirmList(w, h)
@@ -317,7 +417,7 @@ func (m Model) goBack() (tea.Model, tea.Cmd) {
 		m.cancelled = true
 		return m, tea.Quit
 
-	case stepProject:
+	case stepMode:
 		if len(m.cfg.Presets) > 0 {
 			m.currentStep = stepPreset
 			w, h := m.listSize()
@@ -327,20 +427,60 @@ func (m Model) goBack() (tea.Model, tea.Cmd) {
 			return m, tea.Quit
 		}
 
-	case stepLayout:
+	case stepProject:
+		if len(m.projects) >= 2 {
+			m.currentStep = stepMode
+			w, h := m.listSize()
+			m.list = newModeList(w, h)
+		} else if len(m.cfg.Presets) > 0 {
+			m.currentStep = stepPreset
+			w, h := m.listSize()
+			m.list = newPresetList(m.cfg.Presets, w, h)
+		} else {
+			m.cancelled = true
+			return m, tea.Quit
+		}
+
+	case stepProjectBottom:
 		m.currentStep = stepProject
 		w, h := m.listSize()
 		m.list = newProjectList(m.projects, w, h)
 
+	case stepLayout:
+		if m.splitMode {
+			m.currentStep = stepProjectBottom
+			w, h := m.listSize()
+			m.list = newProjectList(m.projects, w, h)
+		} else {
+			m.currentStep = stepProject
+			w, h := m.listSize()
+			m.list = newProjectList(m.projects, w, h)
+		}
+
 	case stepTool:
 		m.currentStep = stepLayout
 		w, h := m.listSize()
-		m.list = newLayoutList(m.layouts, w, h, m.cfg.DefaultLayout)
+		if m.splitMode {
+			m.list = newSplitLayoutList(w, h, m.cfg.DefaultLayout)
+		} else {
+			m.list = newLayoutList(m.layouts, w, h, m.cfg.DefaultLayout)
+		}
 
-	case stepConfirm:
+	case stepToolBottom:
 		m.currentStep = stepTool
 		w, h := m.listSize()
 		m.list = newToolList(m.tools, w, h, m.cfg.DefaultTool)
+
+	case stepConfirm:
+		if m.splitMode {
+			m.currentStep = stepToolBottom
+			w, h := m.listSize()
+			m.list = newToolList(m.tools, w, h, m.cfg.DefaultTool)
+		} else {
+			m.currentStep = stepTool
+			w, h := m.listSize()
+			m.list = newToolList(m.tools, w, h, m.cfg.DefaultTool)
+		}
 	}
 
 	return m, nil
@@ -359,6 +499,10 @@ func (m Model) updatePresetNaming(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			Project: m.selectedProject.Name,
 			Layout:  m.selectedLayout.ID(),
 			Tool:    m.selectedTool.Name,
+		}
+		if m.splitMode {
+			preset.ProjectBottom = m.selectedBottomProject.Name
+			preset.ToolBottom = m.selectedToolBottom.Name
 		}
 		m.cfg.Presets = append(m.cfg.Presets, preset)
 		m.configDirty = true
@@ -386,11 +530,19 @@ func (m *Model) applyPreset(p config.Preset) {
 	}
 	// Normalize old-style layout IDs (e.g. "2x1" -> "2", "3x2" -> "3,3")
 	layoutID := convertLegacyLayoutID(p.Layout)
-	// Find the layout
+	// Find the layout — search both regular and split layouts
 	for _, lay := range m.layouts {
 		if lay.ID() == layoutID {
 			m.selectedLayout = lay
 			break
+		}
+	}
+	if m.selectedLayout.Name == "" {
+		for _, lay := range SplitLayouts {
+			if lay.ID() == layoutID {
+				m.selectedLayout = lay
+				break
+			}
 		}
 	}
 	// Find the tool
@@ -398,6 +550,22 @@ func (m *Model) applyPreset(p config.Preset) {
 		if t.Name == p.Tool {
 			m.selectedTool = t
 			break
+		}
+	}
+	// Detect split preset
+	if p.ProjectBottom != "" {
+		m.splitMode = true
+		for _, proj := range m.projects {
+			if proj.Name == p.ProjectBottom {
+				m.selectedBottomProject = proj
+				break
+			}
+		}
+		for _, t := range m.tools {
+			if t.Name == p.ToolBottom {
+				m.selectedToolBottom = t
+				break
+			}
 		}
 	}
 }
@@ -505,14 +673,32 @@ func parseRowCols(s string) ([]int, error) {
 
 func (m Model) selectionLineCount() int {
 	count := 0
-	if m.currentStep > stepProject {
-		count++ // "Project: xxx"
-	}
-	if m.currentStep > stepLayout {
-		count++ // "Layout: xxx"
-	}
-	if m.currentStep > stepTool {
-		count++ // "Tool: xxx"
+	if m.splitMode {
+		if m.currentStep > stepProject {
+			count++ // "Top: xxx"
+		}
+		if m.currentStep > stepProjectBottom {
+			count++ // "Bottom: xxx"
+		}
+		if m.currentStep > stepLayout {
+			count++ // "Layout: xxx"
+		}
+		if m.currentStep > stepTool {
+			count++ // "Top Tool: xxx"
+		}
+		if m.currentStep > stepToolBottom {
+			count++ // "Btm Tool: xxx"
+		}
+	} else {
+		if m.currentStep > stepProject {
+			count++ // "Project: xxx"
+		}
+		if m.currentStep > stepLayout {
+			count++ // "Layout: xxx"
+		}
+		if m.currentStep > stepTool {
+			count++ // "Tool: xxx"
+		}
 	}
 	if count > 0 {
 		count++ // blank line after selections
@@ -536,9 +722,12 @@ func (m Model) listSize() (int, int) {
 
 // --- Accessors for main.go ---
 
-func (m Model) Cancelled() bool          { return m.cancelled }
-func (m Model) ConfigChanged() bool       { return m.configDirty }
-func (m Model) Config() *config.Config    { return m.cfg }
-func (m Model) SelectedProject() scanner.Project { return m.selectedProject }
-func (m Model) SelectedLayout() Layout    { return m.selectedLayout }
-func (m Model) SelectedTool() Tool        { return m.selectedTool }
+func (m Model) Cancelled() bool                    { return m.cancelled }
+func (m Model) ConfigChanged() bool                 { return m.configDirty }
+func (m Model) Config() *config.Config              { return m.cfg }
+func (m Model) SelectedProject() scanner.Project    { return m.selectedProject }
+func (m Model) SelectedLayout() Layout              { return m.selectedLayout }
+func (m Model) SelectedTool() Tool                  { return m.selectedTool }
+func (m Model) IsSplitMode() bool                   { return m.splitMode }
+func (m Model) SelectedBottomProject() scanner.Project { return m.selectedBottomProject }
+func (m Model) SelectedToolBottom() Tool            { return m.selectedToolBottom }

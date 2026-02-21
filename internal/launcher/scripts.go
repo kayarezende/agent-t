@@ -33,12 +33,14 @@ set screenWidth to {{.X2}}
 set screenHeight to {{.Y2}}
 set menuBar to 25
 set rowColsList to { {{.RowCols}} }
+set termCmdsList to { {{.TermCmds}} }
 set numRows to {{.NumRows}}
 set cellH to (screenHeight - screenY - menuBar) / numRows
 
 tell application "Terminal"
     repeat with r from 1 to numRows
         set thisCols to item r of rowColsList
+        set thisCmd to item r of termCmdsList
         set cellW to (screenWidth - screenX) / thisCols
         repeat with c from 0 to (thisCols - 1)
             set x1 to (screenX + c * cellW) as integer
@@ -46,7 +48,7 @@ tell application "Terminal"
             set y1 to (screenY + menuBar + (r - 1) * cellH) as integer
             set y2 to (screenY + menuBar + r * cellH) as integer
 
-            do script "{{.TermCmd}}"
+            do script thisCmd
             delay 0.3
             set bounds of window 1 to {x1, y1, x2, y2}
         end repeat

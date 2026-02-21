@@ -60,14 +60,36 @@ func main() {
 
 	// Launch terminals
 	layout := final.SelectedLayout()
-	fmt.Printf("Launching %d terminals (%s) in %s...\n",
-		layout.TotalTerminals(), layout.Desc,
-		final.SelectedProject().Name)
+	numRows := len(layout.RowCols)
+
+	// Build per-row project dirs and commands
+	var projectDirs []string
+	var commands []string
+
+	if final.IsSplitMode() {
+		topPath := final.SelectedProject().Path
+		bottomPath := final.SelectedBottomProject().Path
+		projectDirs = []string{topPath, bottomPath}
+		commands = []string{final.SelectedTool().Command, final.SelectedToolBottom().Command}
+		fmt.Printf("Launching %d terminals (%s) — top: %s, bottom: %s...\n",
+			layout.TotalTerminals(), layout.Desc,
+			final.SelectedProject().Name, final.SelectedBottomProject().Name)
+	} else {
+		projectDirs = make([]string, numRows)
+		commands = make([]string, numRows)
+		for i := 0; i < numRows; i++ {
+			projectDirs[i] = final.SelectedProject().Path
+			commands[i] = final.SelectedTool().Command
+		}
+		fmt.Printf("Launching %d terminals (%s) in %s...\n",
+			layout.TotalTerminals(), layout.Desc,
+			final.SelectedProject().Name)
+	}
 
 	err = launcher.Launch(launcher.Options{
-		ProjectDir: final.SelectedProject().Path,
-		RowCols:    layout.RowCols,
-		Command:    final.SelectedTool().Command,
+		ProjectDirs: projectDirs,
+		RowCols:     layout.RowCols,
+		Commands:    commands,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error launching: %v\n", err)

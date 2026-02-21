@@ -42,7 +42,7 @@ var (
 
 	confirmLabelStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("241")).
-				Width(12)
+				Width(14)
 
 	confirmValueStyle = lipgloss.NewStyle().
 				Foreground(lipgloss.Color("230")).

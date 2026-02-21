@@ -13,24 +13,39 @@ import (
 type step int
 
 const (
-	stepPreset  step = iota
-	stepProject step = iota
-	stepLayout  step = iota
-	stepTool    step = iota
-	stepConfirm step = iota
-	stepDone    step = iota
+	stepPreset        step = iota
+	stepMode          step = iota
+	stepProject       step = iota
+	stepProjectBottom step = iota
+	stepLayout        step = iota
+	stepTool          step = iota
+	stepToolBottom    step = iota
+	stepConfirm       step = iota
+	stepDone          step = iota
 )
 
-func stepTitle(s step) string {
+func stepTitle(s step, splitMode bool) string {
 	switch s {
 	case stepPreset:
 		return "Choose a Preset"
+	case stepMode:
+		return "Workspace Mode"
 	case stepProject:
+		if splitMode {
+			return "Select Top Project"
+		}
 		return "Select Project"
+	case stepProjectBottom:
+		return "Select Bottom Project"
 	case stepLayout:
 		return "Select Layout"
 	case stepTool:
+		if splitMode {
+			return "Select Top Tool"
+		}
 		return "Select AI Tool"
+	case stepToolBottom:
+		return "Select Bottom Tool"
 	case stepConfirm:
 		return "Confirm & Launch"
 	default:
@@ -38,11 +53,36 @@ func stepTitle(s step) string {
 	}
 }
 
-func stepNumber(s step, hasPresets bool) (int, int) {
+func stepNumber(s step, hasPresets bool, splitMode bool) (int, int) {
+	if splitMode {
+		total := 7
+		switch s {
+		case stepPreset:
+			return 0, total
+		case stepMode:
+			return 1, total
+		case stepProject:
+			return 2, total
+		case stepProjectBottom:
+			return 3, total
+		case stepLayout:
+			return 4, total
+		case stepTool:
+			return 5, total
+		case stepToolBottom:
+			return 6, total
+		case stepConfirm:
+			return 7, total
+		}
+		return 0, total
+	}
+
 	total := 4
 	switch s {
 	case stepPreset:
-		return 0, total // presets shown as step 0 (not counted)
+		return 0, total
+	case stepMode:
+		return 1, total
 	case stepProject:
 		return 1, total
 	case stepLayout:
@@ -139,7 +179,24 @@ func AllTools(cfg *config.Config) []Tool {
 	return tools
 }
 
+// SplitLayouts contains only multi-row layouts suitable for split workspace mode.
+var SplitLayouts = []Layout{
+	{Name: "4 terminals (2+2)", RowCols: []int{2, 2}, Desc: "[ ][ ] / [ ][ ]"},
+	{Name: "6 terminals (3+3)", RowCols: []int{3, 3}, Desc: "[ ][ ][ ] / [ ][ ][ ]"},
+	{Name: "8 terminals (4+4)", RowCols: []int{4, 4}, Desc: "[ ][ ][ ][ ] / [ ][ ][ ][ ]"},
+}
+
 // --- List item types ---
+
+type modeItem struct {
+	name string
+	desc string
+	split bool
+}
+
+func (i modeItem) Title() string       { return i.name }
+func (i modeItem) Description() string { return i.desc }
+func (i modeItem) FilterValue() string { return i.name }
 
 type presetItem struct {
 	preset config.Preset
@@ -204,6 +261,37 @@ func (i confirmItem) Description() string { return i.desc }
 func (i confirmItem) FilterValue() string { return i.name }
 
 // --- List builders ---
+
+func newModeList(width, height int) list.Model {
+	items := []list.Item{
+		modeItem{name: "Single Project", desc: "All terminals in one project", split: false},
+		modeItem{name: "Split Workspace", desc: "Top row = project A, bottom row = project B", split: true},
+	}
+	l := list.New(items, newStyledDelegate(), width, height)
+	l.Title = "Workspace Mode"
+	l.SetShowStatusBar(false)
+	l.SetFilteringEnabled(false)
+	l.SetShowHelp(true)
+	return l
+}
+
+func newSplitLayoutList(width, height int, defaultLayout string) list.Model {
+	items := make([]list.Item, len(SplitLayouts))
+	defaultIdx := 0
+	for i, lay := range SplitLayouts {
+		items[i] = layoutItem{layout: lay}
+		if lay.ID() == defaultLayout {
+			defaultIdx = i
+		}
+	}
+	l := list.New(items, newStyledDelegate(), width, height)
+	l.Title = "Layout"
+	l.SetShowStatusBar(false)
+	l.SetFilteringEnabled(false)
+	l.SetShowHelp(true)
+	l.Select(defaultIdx)
+	return l
+}
 
 func newPresetList(presets []config.Preset, width, height int) list.Model {
 	items := []list.Item{presetItem{isNew: true}}
